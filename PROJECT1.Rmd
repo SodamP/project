@@ -1,0 +1,204 @@
+---
+title: "범죄데이터를 이용한 분석 및 시각화"
+author: "LEE YEON JAE, PARK SO DAM, OH HYUN JIN"
+date: "2019년 3월 20일"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 패키지 설정 및 다운로드
+#####rm(list=ls())
+#####install.packages("data.table")
+
+```{r}
+#install.packages("devtools")  # 한번 설치한 경우에는 다시 설치할 필요 없습니다.
+#devtools::install_github("cardiomoon/Kormaps")
+
+library(data.table)
+library(webshot)
+require(Kormaps)
+require(tmap)
+require(leaflet)
+```
+
+
+## 데이터 불러오기
+```{r crime}
+crime <- read.csv(file.choose(), sep=",", header=T, stringsAsFactors=F)
+str(crime)
+crime[1:5,1:8]
+```
+
+## Kormaps 한글 인코딩작업
+```{r kormaps encoding}
+korpopmap1@data$name
+Encoding(names(korpopmap1))<-"UTF-8"
+Encoding(korpopmap1@data$name)<-"UTF-8"
+Encoding(korpopmap1@data$행정구역별_읍면동)<-"UTF-8"
+Encoding(names(korpopmap2))<-"UTF-8"
+Encoding(korpopmap1@data$name)<-"UTF-8"
+Encoding(korpopmap1@data$행정구역별_읍면동)<-"UTF-8"
+Encoding(names(korpopmap3))<-"UTF-8"
+Encoding(korpopmap1@data$name)<-"UTF-8"
+Encoding(korpopmap1@data$행정구역별_읍면동)<-"UTF-8"
+ZZZ <- data.table(korpopmap1@data)
+korpopmap1@data$name
+
+```
+###  Data Refining
+```{r}
+korpopmap1$name
+colnames(crime)
+names(crime)<-gsub(' ','',names(crime))
+# install.packages(("taRifx"))
+library(taRifx)
+chnum <- function(x){
+  x<-gsub("-",0,x)
+  x<-destring(x)
+  return(x)
+}
+crime_2 <- as.data.frame(lapply(crime[,3:90],chnum))
+crime[,3:90] <-crime_2
+crime_2[1:5,1:88]
+```
+
+## column 이름 Kormaps와 동일하게 작업
+```{r column kormaps}
+#install.packages("dplyr")
+library(dplyr)
+
+kk1<- crime %>% select(starts_with("경기")) %>% rowSums() %>% as.data.frame()
+kk2<- crime %>% select(starts_with("강원")) %>% rowSums() %>% as.data.frame()
+kk3<- crime %>% select(starts_with("충북")) %>% rowSums() %>% as.data.frame()
+kk4<- crime %>% select(starts_with("충남")) %>% rowSums() %>% as.data.frame()
+kk5<- crime %>% select(starts_with("전북")) %>% rowSums() %>% as.data.frame()
+kk6<- crime %>% select(starts_with("전남")) %>% rowSums() %>% as.data.frame()
+kk7<- crime %>% select(starts_with("경북")) %>% rowSums() %>% as.data.frame()
+kk8<- crime %>% select(starts_with("경남")) %>% rowSums() %>% as.data.frame()
+kk9<- crime %>% select(starts_with("제주")) %>% rowSums() %>% as.data.frame()
+
+tn_crime<-cbind(crime[,4:10],kk1,kk2,kk3,kk4,kk5,kk6,kk7,kk8,kk9)
+colnames(tn_crime)<-c("서울특별시","부산광역시","대구광역시","인천광역시","광주광역시",
+                     "대전광역시","울산광역시","경기도","강원도","충청북도","충청남도",
+                     "전라북도","전라남도","경상북도","경상남도","제주특별자치도")
+
+
+```
+## 행과 열 전치작업
+```{r t(tn_crime)}
+tn_crime <- t(tn_crime)
+tn_crime <- data.frame(tn_crime)
+tn_crime
+```
+
+## 필요없는 부분 삭제
+```{r}
+a <- unlist(crime[,2], use.names=FALSE)
+a
+colnames(tn_crime) <- a
+tn_crime
+```
+
+## Korpopmap1 지도에 데이터 대입하기
+```{r}
+korpopmap1@data <- cbind(korpopmap1@data,tn_crime[1:38])
+mymap <- korpopmap1
+mypalette <- colorNumeric(palette = "Oranges",domain = mymap@data$교통범죄)
+mypopup <- paste0(mymap$name,"교통범죄발생 수:",mymap@data$교통범죄)
+leaflet(mymap) %>%
+  addTiles() %>%
+  addPolygons(stroke=FALSE,
+              smoothFactor = 0.2,
+              fillOpacity = 1,
+              popup=mypopup,
+              color= ~mypalette(mymap@data$교통범죄))
+```
+
+## Heatmap 작성하기
+```{r heatmap}
+tn_crime <- t(tn_crime)
+
+crime_matrix <- data.matrix(tn_crime)
+crime_heatmap <- heatmap(crime_matrix, Rowv=NA, Colv=NA, col=cm.colors(256), scale="column", margin=c(3,3))
+library(RColorBrewer)
+crime_heatmap <- heatmap(crime_matrix, main = "지역별 범죄", Rowv=NA, Colv=NA, col=brewer.pal(9, "Reds"), scale="column", margin=c(3,3))
+
+```
+
+##계층적 군집분석(hclust 이용)
+```{r}
+#변수간의 거리 구하기
+d1 = dist(tn_crime)
+as.matrix(d1)
+
+#표준화하기
+crime_scale <- scale(tn_crime)
+d2 <- dist(crime_scale)
+as.matrix(d2)
+
+#계층적 군집화 실시
+fit.average = hclust(d2,method = "average") #거리계산은 평균연결법로 설정
+plot(fit.average, hang = -1,cex = 0.8, main = "Average Linkage Clustering")
+
+
+#군집수 정하기
+#install.packages("NbClust")
+library(NbClust)
+
+nc = NbClust(crime_scale, distance = "euclidean", 
+             min.nc = 2, max.nc = 15, method = "average") 
+# min.nc, max.nc : 군집의 수를 2~15로 한정하여 추천 받겠다.
+# method는 유클리드 거리계산 방법 중 평균거리 계산법을 사용하겠다
+
+#찾은 군집수대로 분류하기
+clusters1 = cutree(fit.average, k = 3)
+table(clusters1) 
+
+#군집 시각화
+plot(fit.average, hang = -1, cex = .8, main = "Average Linkage Clustering")
+rect.hclust(fit.average, k = 3)  
+
+```
+
+
+
+##비계층적 군집분석(kmeans 이용)
+```{R}
+#패키지 설치
+#install.packages("graphics")
+library(graphics)
+
+
+
+#클러스터를 3개 설정
+km3 <- kmeans(tn_crime, 3)
+km3
+
+#k의 변화에 따른 withinss의 변화
+with <- c()
+for(i in 1:10) {
+  with[i] <- sum(kmeans(tn_crime, i)$withinss)
+}
+plot(1:10,with,type="b",xlab="Numbers of Cluster",ylab = "Within group Sum of Square")
+
+#k의 변화에 따른 betweenss의 
+bet <- c()
+for(i in 1:10) {
+  bet[i] <- kmeans(tn_crime,i)$betweenss
+}
+plot(1:10,bet,type="b",xlab = "Numbers of Cluster",ylab = "between group Sum of Square")
+
+#k 변화에 따른 정확도의 변화
+bet_ss <- c()
+for(i in 1:10) { 
+  kms <- kmeans(tn_crime,i) 
+  bet_ss[i] <- round(kms$betweenss/kms$totss*100,1)
+}
+y_name <- paste("between_ss","\n","/","\n","total_ss",collapse="")
+par(oma=c(0,1,0,0))
+par(mgp=c(1,0.1,0))
+plot(1:10,bet_ss,type="b",xlab="Numbers of Cluster",ylab = y_name, ylim=c(1,100),las=1)
